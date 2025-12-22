@@ -238,7 +238,15 @@
 
   // --- level + game constants
   const levels = [
-    { name: 'Matcha Basics', goal: 22, totalTime: 48, spawn: { doubleChance: 0.18 } },
+    {
+      name: 'Matcha Basics',
+      goal: 22,
+      totalTime: 48,
+      spawn: {
+        doubleChance: 0.18,
+        weights: { leaf: 0.7, gold: 0.18, clay: 0.12 }
+      }
+    },
   ];
   let currentLevel = 0;
 
@@ -284,7 +292,8 @@
       ps[1].innerHTML = `<b>Ziel:</b> ${cfg.goal} Punkte in ${cfg.totalTime} Sekunden → ${next}.`;
     }
     if (ps[2]) {
-      ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow. Nach 3 Versuchen schalten wir automatisch frei.`;
+      const attempt = Math.min(tries + 1, 3);
+      ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Versuch ${attempt}/3. Tipp: Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow.`;
     }
     btnStart.textContent = `Level ${currentLevel+1} starten`;
   }
@@ -348,14 +357,19 @@
     const h = document.getElementById('hello');
     h.textContent = name ? `Noch eine Runde, ${name}?` : 'Noch eine Runde?';
     syncStartCard();
-    startCard.querySelector('p.small').textContent = `Versuch ${tries}/3. (Nach 3 Versuchen schalten wir automatisch frei.)`;
   }
 
   function spawn() {
-    const roll = Math.random();
+    const cfg = levelCfg();
+    const w = (cfg.spawn && cfg.spawn.weights) || { leaf: 0.72, gold: 0.14, clay: 0.14 };
+    const leafW = w.leaf ?? 0.72;
+    const goldW = w.gold ?? 0.14;
+    const clayW = w.clay ?? 0.14;
+    const totalW = leafW + goldW + clayW;
+    const roll = Math.random() * totalW;
     let type = 'leaf';
-    if (roll > 0.86) type = 'gold';
-    else if (roll > 0.72) type = 'clay';
+    if (roll > leafW + goldW) type = 'clay';
+    else if (roll > leafW) type = 'gold';
 
     const r = type === 'gold' ? rand(14,20) : (type === 'leaf' ? rand(10,16) : rand(14,20));
     items.push({
