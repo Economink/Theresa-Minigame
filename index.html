@@ -26,21 +26,22 @@
       height:100dvh;
       min-height:100dvh;
       padding-bottom: env(safe-area-inset-bottom);
-
+      max-width: 1100px;
+      margin: 0 auto;
       display:flex;
       flex-direction:column;
       align-items:stretch;
     }
     header {
-      padding: calc(10px + env(safe-area-inset-top)) 14px 6px;
-      display:flex; align-items:baseline; justify-content:space-between;
-      gap:10px;
+      padding: calc(10px + env(safe-area-inset-top)) clamp(12px, 3vw, 24px) 6px;
+      display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap;
+      gap:10px 14px;
     }
     header .title {
-      font-weight:800; letter-spacing:.3px;
+      font-weight:800; letter-spacing:.3px; font-size:clamp(18px, 4vw, 26px);
     }
     header .meta {
-      font-size:14px; opacity:.8;
+      font-size:14px; opacity:.9;
       white-space:nowrap;
     }
     #gameArea {
@@ -49,16 +50,18 @@
       display:flex;
       align-items:stretch;
       justify-content:center;
-      padding:10px 12px;
+      padding: clamp(8px, 2.5vw, 14px);
+      min-height: min(72vh, 620px);
     }
     canvas {
       display:block;
       border-radius:18px;
       background: linear-gradient(180deg, #ffffff 0%, #f2f1ea 100%);
-      box-shadow: 0 8px 22px rgba(0,0,0,.10);
+      box-shadow: 0 10px 26px rgba(0,0,0,.12);
       touch-action:none;
       user-select:none;
       -webkit-user-select:none;
+      max-width: 100%;
     }
     #overlay {
       position:absolute;
@@ -135,18 +138,18 @@
 <div id="wrap">
   <header>
     <div class="title">🍵 Matcha-Whisk-Dash</div>
-    <div class="meta" id="hud">Score: 0 · Zeit: 30</div>
+    <div class="meta" id="hud">Score: 0 · Zeit: 48</div>
   </header>
 
   <div id="gameArea">
-    <canvas id="c" width="900" height="560" aria-label="Spielbereich"></canvas>
+    <canvas id="c" width="900" height="680" aria-label="Spielbereich"></canvas>
 
     <div id="overlay">
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
         <p>Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Ziel:</b> 15 Punkte in 30 Sekunden → Gutschein wird freigeschaltet.</p>
-        <p class="small">Tipp: Wenn du dreimal scheiterst, schalten wir aus Mitleid trotzdem frei. 🎁</p>
+        <p><b>Ziel:</b> 22 Punkte in 48 Sekunden → Gutschein wird freigeschaltet.</p>
+        <p class="small">Tipp: Goldene Blätter geben Bonus + Zeit, Serie bringt Extra-Punkte. Nach 3 Versuchen schalten wir trotzdem frei. 🎁</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -156,8 +159,9 @@
       <div class="card" id="howCard" style="display:none;">
         <h1>So geht's</h1>
         <p>• Bewege den Besen unten per Drag oder Tippen.<br/>
-           • Grün = +1 Punkt · Braun = −2 Punkte.<br/>
-           • Bei 15 Punkten: Freigeschaltet.</p>
+           • Grün = +1 Punkt (Serie steigert Bonus) · Braun = −2 Punkte.<br/>
+           • Gold = +3 Punkte + Zeit + Chill-Modus.<br/>
+           • Bei 22 Punkten: Freigeschaltet.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
         </div>
@@ -204,7 +208,7 @@
   btnHow.onclick = () => { startCard.style.display='none'; howCard.style.display='block'; };
   btnBack.onclick = () => { howCard.style.display='none'; startCard.style.display='block'; };
   // --- sizing (iPhone-friendly)
-  const BASE_W = 900, BASE_H = 560;
+  const BASE_W = 900, BASE_H = 680;
   const W = BASE_W, H = BASE_H;
 
   function fitCanvas() {
@@ -233,12 +237,12 @@
   fitCanvas();
 
   // --- game constants
-  const goal = 20;
-  const totalTime = 45;
+  const goal = 22;
+  const totalTime = 48;
 
   // player (whisk)
   const player = {
-    x: W*0.5, y: H-70, w: 120, h: 22,
+    x: W*0.5, y: H-90, w: 132, h: 26,
     targetX: W*0.5
   };
 
@@ -248,10 +252,26 @@
   let spawnT = 0;
   let last = 0;
   let tries = 0;
+  let streak = 0;
+  let slowMo = 0;
+  let shake = 0;
 
   const items = []; // falling
+  const particles = [];
 
   function rand(a,b) { return a + Math.random()*(b-a); }
+
+  function burst(x, y, color) {
+    for (let i=0; i<9; i++) {
+      particles.push({
+        x, y,
+        vx: rand(-90, 90),
+        vy: rand(-140, -40),
+        life: rand(0.35, 0.75),
+        color
+      });
+    }
+  }
 
   function reset() {
     running = false;
@@ -259,8 +279,13 @@
     timeLeft = totalTime;
     spawnT = 0;
     items.length = 0;
+    particles.length = 0;
     player.x = W*0.5;
+    player.y = H-90;
     player.targetX = player.x;
+    streak = 0;
+    slowMo = 0;
+    shake = 0;
     hud.textContent = `Score: ${score} · Zeit: ${timeLeft}`;
   }
 
@@ -304,14 +329,18 @@
   }
 
   function spawn() {
-    const isLeaf = Math.random() < 0.78; // mostly matcha leaves
-    const r = isLeaf ? rand(10,16) : rand(14,20);
+    const roll = Math.random();
+    let type = 'leaf';
+    if (roll > 0.86) type = 'gold';
+    else if (roll > 0.72) type = 'clay';
+
+    const r = type === 'gold' ? rand(14,20) : (type === 'leaf' ? rand(10,16) : rand(14,20));
     items.push({
       x: rand(r, W-r),
       y: -r-5,
       r,
-      vy: rand(110, 180) * (isLeaf?1:0.95),
-      type: isLeaf ? 'leaf' : 'clay',
+      vy: rand(150, 220) * (type==='leaf'?1:(type==='gold'?0.98:0.9)),
+      type,
       wobble: rand(0, Math.PI*2),
     });
   }
@@ -375,14 +404,16 @@
   }
 
   function drawBowl() {
-    const bowlY = H-28;
+    const bowlY = H-34;
+    const bowlRX = W*0.36;
+    const bowlDepth = Math.max(40, H*0.07);
     ctx.save();
     ctx.translate(W/2, bowlY);
 
     // bowl base
     ctx.fillStyle = 'rgba(0,0,0,0.10)';
     ctx.beginPath();
-    ctx.ellipse(0, 10, 250, 24, 0, 0, Math.PI*2);
+    ctx.ellipse(0, 10, bowlRX*0.95, 24, 0, 0, Math.PI*2);
     ctx.fill();
 
     ctx.fillStyle = '#e8e0d4';
@@ -390,18 +421,25 @@
     ctx.lineWidth = 3;
 
     ctx.beginPath();
-    ctx.ellipse(0, -8, 260, 55, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -8, bowlRX, bowlDepth+12, 0, 0, Math.PI*2);
     ctx.fill();
     ctx.stroke();
 
     // matcha surface glow
-    const g = ctx.createRadialGradient(0,-20,20, 0,-20,160);
-    g.addColorStop(0,'rgba(155,181,159,0.55)');
+    const g = ctx.createRadialGradient(0,-18,26, 0,-18,bowlRX*0.65);
+    g.addColorStop(0,'rgba(155,181,159,0.6)');
     g.addColorStop(1,'rgba(155,181,159,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(0, -16, 240, 44, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -16, bowlRX*0.9, bowlDepth*0.8, 0, 0, Math.PI*2);
     ctx.fill();
+
+    // small swirl
+    ctx.strokeStyle = 'rgba(111,143,116,0.38)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(-10, -18, bowlRX*0.22, bowlDepth*0.28, 0, 0, Math.PI*2);
+    ctx.stroke();
 
     ctx.restore();
   }
@@ -418,7 +456,10 @@
     ctx.fill();
 
     // bristles
-    ctx.strokeStyle = 'rgba(111,143,116,0.95)';
+    const bristleGrad = ctx.createLinearGradient(-player.w*0.5, -12, player.w*0.5, 26);
+    bristleGrad.addColorStop(0, 'rgba(111,143,116,0.95)');
+    bristleGrad.addColorStop(1, 'rgba(155,181,159,0.95)');
+    ctx.strokeStyle = bristleGrad;
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
     for (let i=-6;i<=6;i++) {
@@ -430,12 +471,19 @@
     }
 
     // handle
-    ctx.strokeStyle = 'rgba(138,107,79,0.85)';
-    ctx.lineWidth = 10;
+    const handleGrad = ctx.createLinearGradient(0, -48, 0, -10);
+    handleGrad.addColorStop(0, 'rgba(110,83,58,0.9)');
+    handleGrad.addColorStop(1, 'rgba(168,133,96,0.9)');
+    ctx.strokeStyle = handleGrad;
+    ctx.lineWidth = 11;
     ctx.beginPath();
     ctx.moveTo(0, -22);
-    ctx.lineTo(0, -48);
+    ctx.lineTo(0, -52);
     ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.roundRect(-8, -54, 16, 8, 4);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -443,24 +491,45 @@
   function drawItem(it) {
     ctx.save();
     ctx.translate(it.x, it.y);
-    if (it.type === 'leaf') {
-      ctx.fillStyle = 'rgba(111,143,116,0.95)';
+    if (it.type === 'leaf' || it.type === 'gold') {
+      const rot = Math.sin(it.wobble)*0.5;
+      const g = ctx.createLinearGradient(-it.r, -it.r, it.r, it.r);
+      if (it.type === 'gold') {
+        g.addColorStop(0, 'rgba(230,189,92,0.95)');
+        g.addColorStop(1, 'rgba(255,226,140,0.95)');
+      } else {
+        g.addColorStop(0, 'rgba(111,143,116,0.95)');
+        g.addColorStop(1, 'rgba(155,181,159,0.95)');
+      }
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.ellipse(0,0,it.r*1.05,it.r*0.8, Math.sin(it.wobble)*0.5, 0, Math.PI*2);
+      ctx.ellipse(0,0,it.r*1.05,it.r*0.82, rot, 0, Math.PI*2);
       ctx.fill();
-      // tiny highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = it.type === 'gold' ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(-it.r*0.2,-it.r*0.15,it.r*0.35,it.r*0.22,0,0,Math.PI*2);
-      ctx.fill();
+      ctx.ellipse(-it.r*0.25,-it.r*0.12,it.r*0.45,it.r*0.26,rot,0,Math.PI*2);
+      ctx.stroke();
     } else {
-      ctx.fillStyle = 'rgba(138,107,79,0.90)';
+      ctx.fillStyle = 'rgba(138,107,79,0.92)';
       ctx.beginPath();
       ctx.arc(0,0,it.r,0,Math.PI*2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.beginPath();
       ctx.arc(-it.r*0.25,-it.r*0.2,it.r*0.45,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawParticles() {
+    ctx.save();
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life * 1.3);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4 + (p.color.includes('gold') ? 1.5 : 0), 0, Math.PI*2);
       ctx.fill();
     }
     ctx.restore();
@@ -489,6 +558,53 @@
     ctx.fillStyle = 'rgba(111,143,116,0.75)';
     ctx.fillRect(bx, by, Math.max(0, Math.min(bw, (score/goal)*bw)), bh);
 
+    // streak badge
+    if (streak >= 2) {
+      const sx = 20, sy = 64;
+      ctx.fillStyle = 'rgba(111,143,116,0.15)';
+      ctx.beginPath();
+      ctx.roundRect(sx, sy, 128, 32, 12);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.font = '600 15px system-ui';
+      ctx.fillText(`Serie x${streak}`, sx+12, sy+21);
+    }
+
+    // slow badge
+    if (slowMo > 0) {
+      const bx2 = W-156, by2 = 64;
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.beginPath();
+      ctx.roundRect(bx2, by2, 136, 32, 12);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(111,143,116,0.85)';
+      ctx.font = '600 14px system-ui';
+      ctx.fillText('Chill 🧊', bx2+12, by2+21);
+    }
+
+    // time bar
+    const tx = W-210, ty = 14, tw = 190, th = 46;
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, th, 14);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.font = '700 18px system-ui';
+    ctx.fillText('Zeit', tx+18, ty+30);
+
+    const tProg = Math.max(0, Math.min(1, timeLeft / totalTime));
+    ctx.fillStyle = 'rgba(138,107,79,0.12)';
+    ctx.fillRect(tx+80, ty+14, 90, 10);
+    ctx.fillStyle = 'rgba(111,143,116,0.8)';
+    ctx.fillRect(tx+80, ty+14, 90 * tProg, 10);
+    ctx.font = '600 14px system-ui';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillText(`${Math.ceil(timeLeft)}s`, tx+80, ty+34);
+
     ctx.restore();
   }
 
@@ -497,18 +613,21 @@
 
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
+    const dtEff = slowMo > 0 ? dt*0.65 : dt;
 
     // update timer
-    timeLeft -= dt;
+    timeLeft -= dtEff;
     if (timeLeft < 0) timeLeft = 0;
+    if (slowMo > 0) slowMo -= dt;
+    if (shake > 0) shake = Math.max(0, shake - dt*2);
 
     // move player smoothly
-    player.x += (player.targetX - player.x) * Math.min(1, dt*10);
+    player.x += (player.targetX - player.x) * Math.min(1, dtEff*12);
 
     // spawn logic
-    spawnT += dt;
+    spawnT += dtEff;
     const p = timeLeft / totalTime;
-    const interval = (p > 0.60) ? 0.65 : (p > 0.30 ? 0.55 : 0.48);
+    const interval = (p > 0.60) ? 0.62 : (p > 0.30 ? 0.50 : 0.42);
     if (spawnT >= interval) {
       spawnT = 0;
       spawn();
@@ -518,13 +637,28 @@
     // update items
     for (let i=items.length-1; i>=0; i--) {
       const it = items[i];
-      it.wobble += dt*4;
-      it.y += it.vy * dt;
-      it.x += Math.sin(it.wobble) * dt * 35;
+      it.wobble += dtEff*4;
+      it.y += it.vy * dtEff;
+      it.x += Math.sin(it.wobble) * dtEff * 35;
 
       if (collide(it)) {
-        if (it.type === 'leaf') score += 1;
-        else score -= 2;
+        if (it.type === 'leaf') {
+          streak += 1;
+          const bonus = 1 + Math.min(3, Math.floor(streak/4));
+          score += bonus;
+          burst(it.x, it.y, 'rgba(111,143,116,0.80)');
+        } else if (it.type === 'gold') {
+          streak += 2;
+          score += 3;
+          timeLeft = Math.min(totalTime, timeLeft + 2.5);
+          slowMo = Math.min(6, slowMo + 3);
+          burst(it.x, it.y, 'rgba(230,189,92,0.85)');
+        } else {
+          score -= 2;
+          streak = 0;
+          shake = 0.35;
+          burst(it.x, it.y, 'rgba(138,107,79,0.75)');
+        }
         items.splice(i,1);
         continue;
       }
@@ -533,12 +667,28 @@
       }
     }
 
+    // particles
+    for (let i=particles.length-1; i>=0; i--) {
+      const p = particles[i];
+      p.life -= dt;
+      if (p.life <= 0) { particles.splice(i,1); continue; }
+      p.vy += 220 * dtEff;
+      p.x += p.vx * dtEff;
+      p.y += p.vy * dtEff;
+    }
+
     // render
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate(rand(-shake*6, shake*6), rand(-shake*6, shake*6));
+    }
     drawBackground();
     for (const it of items) drawItem(it);
+    drawParticles();
     drawBowl();
     drawPlayer();
     drawUI();
+    ctx.restore();
 
     hud.textContent = `Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
 
