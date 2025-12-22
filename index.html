@@ -44,14 +44,14 @@
       font-size:14px; opacity:.9;
       white-space:nowrap;
     }
-    #gameArea {
+  #gameArea {
       position:relative;
       flex:1;
       display:flex;
       align-items:stretch;
       justify-content:center;
       padding: clamp(8px, 2.5vw, 14px);
-      min-height: min(72vh, 620px);
+      min-height: min(82vh, 880px);
     }
     canvas {
       display:block;
@@ -138,18 +138,18 @@
 <div id="wrap">
   <header>
     <div class="title">🍵 Matcha-Whisk-Dash</div>
-    <div class="meta" id="hud">Score: 0 · Zeit: 48</div>
+    <div class="meta" id="hud">Level 1 · Score: 0 · Zeit: 48</div>
   </header>
 
   <div id="gameArea">
-    <canvas id="c" width="900" height="680" aria-label="Spielbereich"></canvas>
+    <canvas id="c" width="900" height="880" aria-label="Spielbereich"></canvas>
 
     <div id="overlay">
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
         <p>Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Ziel:</b> 22 Punkte in 48 Sekunden → Gutschein wird freigeschaltet.</p>
-        <p class="small">Tipp: Goldene Blätter geben Bonus + Zeit, Serie bringt Extra-Punkte. Nach 3 Versuchen schalten wir trotzdem frei. 🎁</p>
+        <p><b>Ziel:</b> Schaff beide Level. Level 1: 44 Punkte in 48 Sekunden → Level 2 freischalten. Level 2 meistern → Gutschein. 🎁</p>
+        <p class="small">Tipp: Goldene Blätter geben Bonus + Zeit, Serien bringen Extra-Punkte. Nach 3 Versuchen schalten wir trotzdem frei.</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -161,7 +161,7 @@
         <p>• Bewege den Besen unten per Drag oder Tippen.<br/>
            • Grün = +1 Punkt (Serie steigert Bonus) · Braun = −2 Punkte.<br/>
            • Gold = +3 Punkte + Zeit + Chill-Modus.<br/>
-           • Bei 22 Punkten: Freigeschaltet.</p>
+           • Level 1 Ziel: 44 Punkte → Level 2. Gutschein erst nach Level 2.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
         </div>
@@ -208,8 +208,9 @@
   btnHow.onclick = () => { startCard.style.display='none'; howCard.style.display='block'; };
   btnBack.onclick = () => { howCard.style.display='none'; startCard.style.display='block'; };
   // --- sizing (iPhone-friendly)
-  const BASE_W = 900, BASE_H = 680;
+  const BASE_W = 900, BASE_H = 880;
   const W = BASE_W, H = BASE_H;
+  const PLAYER_Y = H - 110;
 
   function fitCanvas() {
     const ga = document.getElementById('gameArea');
@@ -240,11 +241,20 @@
   const levels = [
     {
       name: 'Matcha Basics',
-      goal: 22,
+      goal: 44,
       totalTime: 48,
       spawn: {
         doubleChance: 0.18,
         weights: { leaf: 0.7, gold: 0.18, clay: 0.12 }
+      }
+    },
+    {
+      name: 'Matcha Mastery',
+      goal: 28,
+      totalTime: 52,
+      spawn: {
+        doubleChance: 0.22,
+        weights: { leaf: 0.64, gold: 0.16, clay: 0.20 }
       }
     },
   ];
@@ -252,7 +262,7 @@
 
   // player (whisk)
   const player = {
-    x: W*0.5, y: H-90, w: 132, h: 26,
+    x: W*0.5, y: PLAYER_Y, w: 132, h: 26,
     targetX: W*0.5
   };
 
@@ -289,7 +299,8 @@
     const ps = startCard.querySelectorAll('p');
     if (ps[1]) {
       const next = (currentLevel < levels.length-1) ? `Level ${currentLevel+2} freischalten` : 'Gutschein erhalten';
-      ps[1].innerHTML = `<b>Ziel:</b> ${cfg.goal} Punkte in ${cfg.totalTime} Sekunden → ${next}.`;
+      const after = levels.length > 1 ? ` Gutschein nach Level ${levels.length}.` : '';
+      ps[1].innerHTML = `<b>Ziel:</b> ${cfg.goal} Punkte in ${cfg.totalTime} Sekunden → ${next}.${after}`;
     }
     if (ps[2]) {
       const attempt = Math.min(tries + 1, 3);
@@ -308,12 +319,12 @@
     items.length = 0;
     particles.length = 0;
     player.x = W*0.5;
-    player.y = H-90;
+    player.y = PLAYER_Y;
     player.targetX = player.x;
     streak = 0;
     slowMo = 0;
     shake = 0;
-    hud.textContent = `Score: ${score} · Zeit: ${timeLeft}`;
+    hud.textContent = `Level ${currentLevel+1} · Score: ${score} · Zeit: ${timeLeft}`;
   }
 
   function start(newRun=false) {
@@ -442,42 +453,80 @@
   }
 
   function drawBowl() {
-    const bowlY = H-34;
-    const bowlRX = W*0.36;
-    const bowlDepth = Math.max(40, H*0.07);
+    const bowlY = H - 46;
+    const bowlRX = W * 0.38;
+    const bowlDepth = Math.max(64, H * 0.085);
     ctx.save();
     ctx.translate(W/2, bowlY);
 
-    // bowl base
-    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    // soft shadow
+    const shadow = ctx.createRadialGradient(0, 26, bowlRX*0.12, 0, 26, bowlRX*0.92);
+    shadow.addColorStop(0, 'rgba(0,0,0,0.12)');
+    shadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadow;
     ctx.beginPath();
-    ctx.ellipse(0, 10, bowlRX*0.95, 24, 0, 0, Math.PI*2);
+    ctx.ellipse(0, 26, bowlRX*0.95, 30, 0, 0, Math.PI*2);
     ctx.fill();
 
-    ctx.fillStyle = '#e8e0d4';
+    // ceramic body
+    const wall = ctx.createLinearGradient(0, -bowlDepth-28, 0, bowlDepth*0.7);
+    wall.addColorStop(0, '#f3eee6');
+    wall.addColorStop(0.55, '#e7dfd3');
+    wall.addColorStop(1, '#d7cbbb');
+    ctx.fillStyle = wall;
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.lineWidth = 3;
 
     ctx.beginPath();
-    ctx.ellipse(0, -8, bowlRX, bowlDepth+12, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -10, bowlRX, bowlDepth+14, 0, 0, Math.PI*2);
     ctx.fill();
     ctx.stroke();
 
-    // matcha surface glow
-    const g = ctx.createRadialGradient(0,-18,26, 0,-18,bowlRX*0.65);
-    g.addColorStop(0,'rgba(155,181,159,0.6)');
-    g.addColorStop(1,'rgba(155,181,159,0)');
-    ctx.fillStyle = g;
+    // rim highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.ellipse(0, -16, bowlRX*0.9, bowlDepth*0.8, 0, 0, Math.PI*2);
-    ctx.fill();
+    ctx.ellipse(0, -10, bowlRX*0.98, bowlDepth+10, 0, 0, Math.PI*2);
+    ctx.stroke();
 
-    // small swirl
-    ctx.strokeStyle = 'rgba(111,143,116,0.38)';
+    // inner lip
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(-10, -18, bowlRX*0.22, bowlDepth*0.28, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -24, bowlRX*0.86, bowlDepth*0.82, 0, 0, Math.PI*2);
     ctx.stroke();
+
+    // matcha surface
+    const g = ctx.createRadialGradient(0, -26, 36, 0, -26, bowlRX*0.76);
+    g.addColorStop(0, 'rgba(132,161,138,0.75)');
+    g.addColorStop(1, 'rgba(132,161,138,0.2)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(0, -24, bowlRX*0.9, bowlDepth*0.72, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // ripples
+    ctx.strokeStyle = 'rgba(111,143,116,0.40)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(-6, -26, bowlRX*0.28, bowlDepth*0.24, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(10, -24, bowlRX*0.18, bowlDepth*0.18, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // foam dots
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    const foam = [
+      [-bowlRX*0.12, -bowlDepth*0.18, 6],
+      [bowlRX*0.08, -bowlDepth*0.12, 5],
+      [-bowlRX*0.02, -bowlDepth*0.08, 4],
+    ];
+    for (const [fx, fy, fr] of foam) {
+      ctx.beginPath();
+      ctx.ellipse(fx, fy, fr, fr*0.62, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
 
     ctx.restore();
   }
