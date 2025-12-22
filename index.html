@@ -147,9 +147,9 @@
     <div id="overlay">
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
-        <p>Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Ziel:</b> Schaff beide Level. Level 1: 44 Punkte in 48 Sekunden → Level 2 freischalten. Level 2 meistern → Gutschein. 🎁</p>
-        <p class="small">Tipp: Goldene Blätter geben Bonus + Zeit, Serien bringen Extra-Punkte. Nach 3 Versuchen schalten wir trotzdem frei.</p>
+        <p>Level 1: Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
+        <p><b>Level 2 (neu!):</b> Die Schale dreht auf der Töpferscheibe. Tippe oben im richtigen Moment auf Matcha-Kleckse, poliere braune Klumpen weg, goldene Wirbel geben Bonus.</p>
+        <p class="small">Ziel: Beide Level schaffen. Tipp: Gold = Bonus + Zeit, Serien bringen Extra-Punkte, bei der Drehscheibe zählt Timing. Nach 3 Versuchen schalten wir trotzdem frei.</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -158,10 +158,9 @@
 
       <div class="card" id="howCard" style="display:none;">
         <h1>So geht's</h1>
-        <p>• Bewege den Besen unten per Drag oder Tippen.<br/>
-           • Grün = +1 Punkt (Serie steigert Bonus) · Braun = −2 Punkte.<br/>
-           • Gold = +3 Punkte + Zeit + Chill-Modus.<br/>
-           • Level 1 Ziel: 44 Punkte → Level 2. Gutschein erst nach Level 2.</p>
+        <p>• Level 1: Besen unten ziehen, Grün fangen, Braun meiden.<br/>
+           • Level 2: Drehscheibe! Tippe, wenn oben ein Klecks vorbeikommt. Braun wegpolieren, Gold = Bonus & Zeit, nichts treffen = Zeitverlust.<br/>
+           • Serien geben Bonuspunkte. Gutschein erst nach Level 2.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
         </div>
@@ -240,6 +239,7 @@
   // --- level + game constants
   const levels = [
     {
+      mode: 'catch',
       name: 'Matcha Basics',
       goal: 44,
       totalTime: 48,
@@ -249,7 +249,8 @@
       }
     },
     {
-      name: 'Matcha Mastery',
+      mode: 'spin',
+      name: 'Matcha-Drehscheibe',
       goal: 28,
       totalTime: 52,
       spawn: {
@@ -277,9 +278,32 @@
   let shake = 0;
 
   const items = []; // falling
+  const spinState = {
+    items: [],
+    wheelAngle: -Math.PI/2,
+    speed: 1.1,
+    hitZone: -Math.PI/2,
+    swing: 0,
+    pulse: 0,
+  };
   const particles = [];
 
   function rand(a,b) { return a + Math.random()*(b-a); }
+  function angleDiff(a, b) {
+    let d = (a - b + Math.PI) % (Math.PI*2);
+    if (d < 0) d += Math.PI*2;
+    return d - Math.PI;
+  }
+  function spinPos(angle) {
+    const rx = Math.min(W*0.36, H*0.32);
+    const ry = rx * 0.72;
+    const cx = W/2;
+    const cy = H*0.50;
+    return {
+      x: cx + Math.cos(angle) * rx,
+      y: cy + Math.sin(angle) * ry
+    };
+  }
   const levelCfg = () => levels[currentLevel];
 
   function burst(x, y, color) {
@@ -294,6 +318,17 @@
     }
   }
 
+  function stepParticles(dtEff) {
+    for (let i=particles.length-1; i>=0; i--) {
+      const p = particles[i];
+      p.life -= dtEff;
+      if (p.life <= 0) { particles.splice(i,1); continue; }
+      p.vy += 220 * dtEff;
+      p.x += p.vx * dtEff;
+      p.y += p.vy * dtEff;
+    }
+  }
+
   function syncStartCard() {
     const cfg = levelCfg();
     const ps = startCard.querySelectorAll('p');
@@ -304,7 +339,10 @@
     }
     if (ps[2]) {
       const attempt = Math.min(tries + 1, 3);
-      ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Versuch ${attempt}/3. Tipp: Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow.`;
+      const modeHint = cfg.mode === 'spin'
+        ? 'Drehscheibe: Tippe oben im richtigen Moment. Braun durchwinken kostet Zeit.'
+        : 'Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow.';
+      ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Versuch ${attempt}/3. Tipp: ${modeHint}`;
     }
     btnStart.textContent = `Level ${currentLevel+1} starten`;
   }
@@ -317,6 +355,11 @@
     timeLeft = cfg.totalTime;
     spawnT = 0;
     items.length = 0;
+    spinState.items.length = 0;
+    spinState.wheelAngle = spinState.hitZone;
+    spinState.speed = 1.1;
+    spinState.swing = 0;
+    spinState.pulse = 0;
     particles.length = 0;
     player.x = W*0.5;
     player.y = PLAYER_Y;
@@ -394,6 +437,27 @@
     });
   }
 
+  function spawnSpin() {
+    const cfg = levelCfg();
+    const w = (cfg.spawn && cfg.spawn.weights) || { leaf: 0.62, gold: 0.18, clay: 0.20 };
+    const leafW = w.leaf ?? 0.62;
+    const goldW = w.gold ?? 0.18;
+    const clayW = w.clay ?? 0.20;
+    const totalW = leafW + goldW + clayW;
+    const roll = Math.random() * totalW;
+    let type = 'leaf';
+    if (roll > leafW + goldW) type = 'clay';
+    else if (roll > leafW) type = 'gold';
+
+    spinState.items.push({
+      angle: rand(0, Math.PI*2),
+      type,
+      wobble: rand(0, Math.PI*2),
+      wasNear: false,
+      punished: false
+    });
+  }
+
   function collide(item) {
     // circle vs player rect
     const rx = player.x - player.w/2;
@@ -405,6 +469,50 @@
     return (dx*dx + dy*dy) <= (item.r*item.r);
   }
 
+  function hitSpin() {
+    if (!running || levelCfg().mode !== 'spin') return;
+    spinState.swing = 0.75;
+    spinState.pulse = 0.6;
+    const cfg = levelCfg();
+    const totalTime = cfg.totalTime;
+    let bestIdx = -1;
+    let bestDiff = 0.38;
+    for (let i=0;i<spinState.items.length;i++) {
+      const it = spinState.items[i];
+      const diff = Math.abs(angleDiff(it.angle, spinState.hitZone));
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx === -1) {
+      streak = 0;
+      timeLeft = Math.max(0, timeLeft - 0.5);
+      shake = 0.2;
+      return;
+    }
+    const it = spinState.items[bestIdx];
+    const pos = spinPos(it.angle);
+    if (it.type === 'leaf') {
+      streak += 1;
+      const bonus = 1 + Math.min(2, Math.floor(streak/3));
+      score += bonus;
+      burst(pos.x, pos.y, 'rgba(111,143,116,0.80)');
+    } else if (it.type === 'gold') {
+      streak += 2;
+      score += 3;
+      timeLeft = Math.min(totalTime, timeLeft + 2);
+      slowMo = Math.min(6, slowMo + 2.4);
+      burst(pos.x, pos.y, 'rgba(230,189,92,0.85)');
+    } else {
+      score += 1;
+      streak = 0;
+      shake = 0.18;
+      burst(pos.x, pos.y, 'rgba(138,107,79,0.82)');
+    }
+    spinState.items.splice(bestIdx, 1);
+  }
+
   // --- input: tap/drag
   function setTargetFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
@@ -412,10 +520,14 @@
     const x = px * (W / rect.width);
     player.targetX = Math.max(player.w/2, Math.min(W-player.w/2, x));
   }
-  canvas.addEventListener('pointerdown', (e)=>{ setTargetFromEvent(e); });
-  canvas.addEventListener('pointermove', (e)=>{ if (e.buttons || e.pressure>0) setTargetFromEvent(e); });
-  canvas.addEventListener('touchstart', (e)=>{ setTargetFromEvent(e); }, {passive:true});
-  canvas.addEventListener('touchmove', (e)=>{ setTargetFromEvent(e); }, {passive:true});
+  function handlePointerDown(e) {
+    if (levelCfg().mode === 'spin') hitSpin();
+    else setTargetFromEvent(e);
+  }
+  canvas.addEventListener('pointerdown', (e)=>{ handlePointerDown(e); });
+  canvas.addEventListener('pointermove', (e)=>{ if (levelCfg().mode !== 'spin' && (e.buttons || e.pressure>0)) setTargetFromEvent(e); });
+  canvas.addEventListener('touchstart', (e)=>{ handlePointerDown(e); }, {passive:true});
+  canvas.addEventListener('touchmove', (e)=>{ if (levelCfg().mode !== 'spin') setTargetFromEvent(e); }, {passive:true});
 
   // start button
   btnStart.onclick = () => start(currentLevel===0);
@@ -622,6 +734,128 @@
     ctx.restore();
   }
 
+  function drawSpinItem(it) {
+    const {x, y} = spinPos(it.angle);
+    ctx.save();
+    ctx.translate(x, y + Math.sin(it.wobble)*4);
+    if (it.type === 'leaf' || it.type === 'gold') {
+      const r = 16;
+      const rot = Math.sin(it.wobble)*0.6;
+      const g = ctx.createLinearGradient(-r, -r, r, r);
+      if (it.type === 'gold') {
+        g.addColorStop(0, 'rgba(230,189,92,0.95)');
+        g.addColorStop(1, 'rgba(255,226,140,0.95)');
+      } else {
+        g.addColorStop(0, 'rgba(111,143,116,0.95)');
+        g.addColorStop(1, 'rgba(155,181,159,0.95)');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0,0,r*1.05,r*0.8, rot, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = it.type === 'gold' ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(-r*0.3,-r*0.12,r*0.5,r*0.32,rot,0,Math.PI*2);
+      ctx.stroke();
+    } else {
+      const r = 18;
+      ctx.fillStyle = 'rgba(138,107,79,0.92)';
+      ctx.beginPath();
+      ctx.arc(0,0,r,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.beginPath();
+      ctx.arc(-r*0.28,-r*0.22,r*0.5,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSpinStage() {
+    const cx = W/2;
+    const cy = H*0.50;
+    const rx = Math.min(W*0.36, H*0.32);
+    const ry = rx * 0.72;
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // spinning base
+    ctx.save();
+    ctx.rotate(spinState.wheelAngle * 0.35);
+    const baseGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, rx*1.2);
+    baseGrad.addColorStop(0, '#f2eee5');
+    baseGrad.addColorStop(1, '#d8cebf');
+    ctx.fillStyle = baseGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx*1.05, ry*1.05, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // hit arc
+    ctx.save();
+    ctx.rotate(spinState.hitZone - Math.PI/2);
+    ctx.strokeStyle = 'rgba(111,143,116,0.30)';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx+10, -Math.PI*0.24, Math.PI*0.24);
+    ctx.stroke();
+    ctx.restore();
+
+    // subtle rings
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx*0.72, ry*0.72, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx*0.52, ry*0.52, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+
+    // wobble halo
+    if (spinState.pulse > 0) {
+      ctx.save();
+      ctx.globalAlpha = spinState.pulse * 0.65;
+      ctx.strokeStyle = 'rgba(111,143,116,0.25)';
+      ctx.lineWidth = 18 * spinState.pulse;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx*0.92 + spinState.pulse*12, ry*0.92 + spinState.pulse*8, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // orbiting bits
+    for (const it of spinState.items) {
+      drawSpinItem(it);
+    }
+
+    // whisk tool
+    const target = spinPos(spinState.hitZone);
+    ctx.save();
+    ctx.translate(target.x, target.y - 32);
+    ctx.rotate(-Math.PI/2 + Math.sin(spinState.swing*Math.PI) * 0.35);
+    ctx.strokeStyle = 'rgba(110,83,58,0.9)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(0, -36);
+    ctx.lineTo(0, 16);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(111,143,116,0.95)';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(0, 16);
+    ctx.lineTo(0, 48);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.font = '600 14px system-ui';
+    ctx.fillText('Treffer-Zone', target.x - 52, target.y - 52);
+    ctx.restore();
+  }
+
   function drawUI() {
     const cfg = levelCfg();
     const goal = cfg.goal;
@@ -699,23 +933,7 @@
     ctx.restore();
   }
 
-  function tick(t) {
-    if (!running) return;
-
-    const cfg = levelCfg();
-    const totalTime = cfg.totalTime;
-    const doubleChance = (cfg.spawn && typeof cfg.spawn.doubleChance === 'number') ? cfg.spawn.doubleChance : 0;
-
-    const dt = Math.min(0.033, (t - last) / 1000);
-    last = t;
-    const dtEff = slowMo > 0 ? dt*0.65 : dt;
-
-    // update timer
-    timeLeft -= dtEff;
-    if (timeLeft < 0) timeLeft = 0;
-    if (slowMo > 0) slowMo -= dt;
-    if (shake > 0) shake = Math.max(0, shake - dt*2);
-
+  function runCatch(dt, dtEff, cfg, doubleChance, totalTime) {
     // move player smoothly
     player.x += (player.targetX - player.x) * Math.min(1, dtEff*12);
 
@@ -762,15 +980,7 @@
       }
     }
 
-    // particles
-    for (let i=particles.length-1; i>=0; i--) {
-      const p = particles[i];
-      p.life -= dt;
-      if (p.life <= 0) { particles.splice(i,1); continue; }
-      p.vy += 220 * dtEff;
-      p.x += p.vx * dtEff;
-      p.y += p.vy * dtEff;
-    }
+    stepParticles(dtEff);
 
     // render
     ctx.save();
@@ -784,6 +994,81 @@
     drawPlayer();
     drawUI();
     ctx.restore();
+  }
+
+  function runSpin(dt, dtEff, cfg) {
+    spinState.wheelAngle = (spinState.wheelAngle + dtEff * spinState.speed) % (Math.PI*2);
+    spinState.speed = 1.05 + Math.min(0.65, score / (cfg.goal * 3.2));
+
+    spawnT += dtEff;
+    const interval = 0.86 - Math.min(0.28, score / Math.max(1, cfg.goal*6));
+    if (spawnT >= interval && spinState.items.length < 12) {
+      spawnT = 0;
+      spawnSpin();
+      if (Math.random() < ((cfg.spawn && cfg.spawn.doubleChance) || 0) * 0.35 && spinState.items.length < 12) {
+        spawnSpin();
+      }
+    }
+
+    for (const it of spinState.items) {
+      it.angle += dtEff * spinState.speed * (0.9 + (it.type === 'gold' ? 0.08 : 0));
+      if (it.angle > Math.PI*2) it.angle -= Math.PI*2;
+      it.wobble += dtEff*3;
+      const diff = Math.abs(angleDiff(it.angle, spinState.hitZone));
+      if (diff < 0.12) {
+        if (!it.wasNear) {
+          it.wasNear = true;
+          if (it.type === 'clay' && !it.punished) {
+            const pos = spinPos(it.angle);
+            score = Math.max(0, score - 1);
+            timeLeft = Math.max(0, timeLeft - 0.9);
+            streak = 0;
+            shake = Math.max(shake, 0.22);
+            burst(pos.x, pos.y, 'rgba(138,107,79,0.70)');
+            it.punished = true;
+          }
+        }
+      } else {
+        it.wasNear = false;
+      }
+    }
+
+    spinState.swing = Math.max(0, spinState.swing - dt*4.2);
+    spinState.pulse = Math.max(0, spinState.pulse - dt*1.8);
+
+    stepParticles(dtEff);
+
+    ctx.save();
+    if (shake > 0) ctx.translate(rand(-shake*6, shake*6), rand(-shake*6, shake*6));
+    drawBackground();
+    drawSpinStage();
+    drawParticles();
+    drawUI();
+    ctx.restore();
+  }
+
+  function tick(t) {
+    if (!running) return;
+
+    const cfg = levelCfg();
+    const totalTime = cfg.totalTime;
+    const doubleChance = (cfg.spawn && typeof cfg.spawn.doubleChance === 'number') ? cfg.spawn.doubleChance : 0;
+
+    const dt = Math.min(0.033, (t - last) / 1000);
+    last = t;
+    const dtEff = slowMo > 0 ? dt*0.65 : dt;
+
+    // update timer
+    timeLeft -= dtEff;
+    if (timeLeft < 0) timeLeft = 0;
+    if (slowMo > 0) slowMo -= dt;
+    if (shake > 0) shake = Math.max(0, shake - dt*2);
+
+    if (cfg.mode === 'spin') {
+      runSpin(dt, dtEff, cfg);
+    } else {
+      runCatch(dt, dtEff, cfg, doubleChance, totalTime);
+    }
 
     hud.textContent = `Level ${currentLevel+1} · Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
 
