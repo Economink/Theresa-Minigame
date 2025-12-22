@@ -26,21 +26,21 @@
       height:100dvh;
       min-height:100dvh;
       padding-bottom: env(safe-area-inset-bottom);
-
+      width:100%;
       display:flex;
       flex-direction:column;
       align-items:stretch;
     }
     header {
-      padding: calc(10px + env(safe-area-inset-top)) 14px 6px;
-      display:flex; align-items:baseline; justify-content:space-between;
-      gap:10px;
+      padding: calc(10px + env(safe-area-inset-top)) clamp(12px, 3vw, 24px) 6px;
+      display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap;
+      gap:10px 14px;
     }
     header .title {
-      font-weight:800; letter-spacing:.3px;
+      font-weight:800; letter-spacing:.3px; font-size:clamp(18px, 4vw, 26px);
     }
     header .meta {
-      font-size:14px; opacity:.8;
+      font-size:14px; opacity:.9;
       white-space:nowrap;
     }
     #gameArea {
@@ -49,16 +49,18 @@
       display:flex;
       align-items:stretch;
       justify-content:center;
-      padding:10px 12px;
+      padding: clamp(8px, 2.5vw, 14px);
+      min-height: calc(100dvh - 170px);
     }
     canvas {
       display:block;
       border-radius:18px;
       background: linear-gradient(180deg, #ffffff 0%, #f2f1ea 100%);
-      box-shadow: 0 8px 22px rgba(0,0,0,.10);
+      box-shadow: 0 10px 26px rgba(0,0,0,.12);
       touch-action:none;
       user-select:none;
       -webkit-user-select:none;
+      max-width: 100%;
     }
     #overlay {
       position:absolute;
@@ -135,18 +137,18 @@
 <div id="wrap">
   <header>
     <div class="title">🍵 Matcha-Whisk-Dash</div>
-    <div class="meta" id="hud">Score: 0 · Zeit: 30</div>
+    <div class="meta" id="hud">Level 1 · Score: 0 · Zeit: 130</div>
   </header>
 
   <div id="gameArea">
-    <canvas id="c" width="900" height="560" aria-label="Spielbereich"></canvas>
+    <canvas id="c" width="900" height="740" aria-label="Spielbereich"></canvas>
 
     <div id="overlay">
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
         <p>Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Ziel:</b> 15 Punkte in 30 Sekunden → Gutschein wird freigeschaltet.</p>
-        <p class="small">Tipp: Wenn du dreimal scheiterst, schalten wir aus Mitleid trotzdem frei. 🎁</p>
+        <p><b>Ziel:</b> Zwei Level: erst Punkte sammeln, dann Matcha-Schaum meistern → Gutschein wird freigeschaltet.</p>
+        <p class="small">Tipp: Goldene Blätter bringen Bonus + Zeit + Chill, Serien halten den Flow. Nach 3 Versuchen schalten wir trotzdem frei. 🎁</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -157,7 +159,8 @@
         <h1>So geht's</h1>
         <p>• Bewege den Besen unten per Drag oder Tippen.<br/>
            • Grün = +1 Punkt · Braun = −2 Punkte.<br/>
-           • Bei 15 Punkten: Freigeschaltet.</p>
+           • Gold = +2 Punkte + Zeit + Chill-Modus, Schaum = +4 Punkte + Bonuszeit.<br/>
+           • Level 1: 80 Punkte in 130s · Level 2: 150 Punkte in 160s, dann Gutschein.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
         </div>
@@ -187,6 +190,7 @@
   const qs = new URLSearchParams(location.search);
   const name = (qs.get('name') || '').trim();
   document.getElementById('hello').textContent = name ? `Hey ${name} 👋` : 'Bereit?';
+  syncStartCard();
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -204,7 +208,7 @@
   btnHow.onclick = () => { startCard.style.display='none'; howCard.style.display='block'; };
   btnBack.onclick = () => { howCard.style.display='none'; startCard.style.display='block'; };
   // --- sizing (iPhone-friendly)
-  const BASE_W = 900, BASE_H = 560;
+  const BASE_W = 900, BASE_H = 740;
   const W = BASE_W, H = BASE_H;
 
   function fitCanvas() {
@@ -233,40 +237,93 @@
   fitCanvas();
 
   // --- game constants
-  const goal = 20;
-  const totalTime = 45;
+  const levels = [
+    {
+      name:'Matcha Basics',
+      goal: 80,
+      totalTime: 130,
+      spawn: { intervals:[0.78,0.68,0.58], doubleChance:0.10, vy:[120,190], goldChance:0.10, clayChance:0.16, foamChance:0 }
+    },
+    {
+      name:'Schaumrausch',
+      goal: 150,
+      totalTime: 160,
+      spawn: { intervals:[0.65,0.55,0.45], doubleChance:0.16, vy:[130,210], goldChance:0.14, clayChance:0.20, foamChance:0.18 }
+    }
+  ];
+  let currentLevel = 0;
 
   // player (whisk)
   const player = {
-    x: W*0.5, y: H-70, w: 120, h: 22,
+    x: W*0.5, y: H-90, w: 132, h: 26,
     targetX: W*0.5
   };
 
   let running = false;
   let score = 0;
-  let timeLeft = totalTime;
+  let timeLeft = levels[0].totalTime;
   let spawnT = 0;
   let last = 0;
   let tries = 0;
+  let streak = 0;
+  let slowMo = 0;
+  let shake = 0;
 
   const items = []; // falling
+  const particles = [];
 
   function rand(a,b) { return a + Math.random()*(b-a); }
+  const levelCfg = () => levels[currentLevel];
 
-  function reset() {
-    running = false;
-    score = 0;
-    timeLeft = totalTime;
-    spawnT = 0;
-    items.length = 0;
-    player.x = W*0.5;
-    player.targetX = player.x;
-    hud.textContent = `Score: ${score} · Zeit: ${timeLeft}`;
+  function burst(x, y, color) {
+    for (let i=0; i<9; i++) {
+      particles.push({
+        x, y,
+        vx: rand(-90, 90),
+        vy: rand(-140, -40),
+        life: rand(0.35, 0.75),
+        color
+      });
+    }
   }
 
-  function start() {
+  function syncStartCard() {
+    const cfg = levelCfg();
+    const ps = startCard.querySelectorAll('p');
+    if (ps[1]) {
+      const next = (currentLevel < levels.length-1) ? `Level ${currentLevel+2} freischalten` : 'Gutschein erhalten';
+      ps[1].innerHTML = `<b>Ziel:</b> ${cfg.goal} Punkte in ${cfg.totalTime} Sekunden → ${next}.`;
+    }
+    if (ps[2]) {
+      ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow. Nach 3 Versuchen schalten wir automatisch frei.`;
+    }
+    btnStart.textContent = `Level ${currentLevel+1} starten`;
+  }
+
+  function reset() {
+    const cfg = levelCfg();
+    running = false;
+    score = 0;
+    timeLeft = cfg.totalTime;
+    spawnT = 0;
+    items.length = 0;
+    particles.length = 0;
+    player.x = W*0.5;
+    player.y = H-90;
+    player.targetX = player.x;
+    streak = 0;
+    slowMo = 0;
+    shake = 0;
+    hud.textContent = `Level ${currentLevel+1} · Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
+  }
+
+  function start(newRun=false) {
+    if (newRun) {
+      tries += 1;
+      currentLevel = 0;
+    }
     reset();
-    tries += 1;
+    syncStartCard();
     startCard.style.display='none';
     howCard.style.display='none';
     endCard.style.display='none';
@@ -280,13 +337,13 @@
     document.getElementById('endTitle').textContent = 'Freigeschaltet 🎉';
     document.getElementById('endText').textContent =
       motive === 'goal'
-      ? 'Nice! Du hast das Matcha-Universum überzeugt. Hier ist dein Gutschein:'
+      ? 'Nice! Du hast alle Matcha-Level gemeistert. Hier ist dein Gutschein:'
       : 'Okay okay… wir schalten frei. Ton ist schwierig, Matcha ist heilig. Hier ist dein Gutschein:';
     endCard.style.display='block';
   }
 
   function gameOver() {
-    if (score >= goal) {
+    if (score >= levelCfg().goal) {
       unlock('goal');
       return;
     }
@@ -300,19 +357,31 @@
     startCard.style.display='block';
     const h = document.getElementById('hello');
     h.textContent = name ? `Noch eine Runde, ${name}?` : 'Noch eine Runde?';
+    syncStartCard();
     startCard.querySelector('p.small').textContent = `Versuch ${tries}/3. (Nach 3 Versuchen schalten wir automatisch frei.)`;
   }
 
   function spawn() {
-    const isLeaf = Math.random() < 0.78; // mostly matcha leaves
-    const r = isLeaf ? rand(10,16) : rand(14,20);
+    const cfg = levelCfg().spawn;
+    const roll = Math.random();
+    let type = 'leaf';
+    const goldEdge = 1 - cfg.goldChance;
+    const clayEdge = goldEdge - cfg.clayChance;
+    const foamEdge = clayEdge - (cfg.foamChance || 0);
+    if (roll > goldEdge) type = 'gold';
+    else if (roll > clayEdge) type = 'clay';
+    else if (roll > foamEdge) type = 'foam';
+
+    const r = type === 'gold' ? rand(14,20) : (type === 'leaf' ? rand(10,16) : type === 'foam' ? rand(14,22) : rand(14,20));
+    const vyBase = rand(cfg.vy[0], cfg.vy[1]);
     items.push({
       x: rand(r, W-r),
       y: -r-5,
       r,
-      vy: rand(110, 180) * (isLeaf?1:0.95),
-      type: isLeaf ? 'leaf' : 'clay',
+      vy: vyBase * (type==='leaf'?1:(type==='gold'?0.92:(type==='foam'?0.9:0.85))),
+      type,
       wobble: rand(0, Math.PI*2),
+      drift: type==='foam' ? rand(-30,30) : 0,
     });
   }
 
@@ -340,11 +409,11 @@
   canvas.addEventListener('touchmove', (e)=>{ setTargetFromEvent(e); }, {passive:true});
 
   // start button
-  btnStart.onclick = start;
+  btnStart.onclick = () => start(currentLevel===0);
   btnReplay.onclick = () => {
     endCard.style.display='none';
     startCard.style.display='block';
-    start();
+    start(true);
   };
 
   function drawBackground() {
@@ -375,14 +444,16 @@
   }
 
   function drawBowl() {
-    const bowlY = H-28;
+    const bowlY = H-34;
+    const bowlRX = W*0.36;
+    const bowlDepth = Math.max(40, H*0.07);
     ctx.save();
     ctx.translate(W/2, bowlY);
 
     // bowl base
     ctx.fillStyle = 'rgba(0,0,0,0.10)';
     ctx.beginPath();
-    ctx.ellipse(0, 10, 250, 24, 0, 0, Math.PI*2);
+    ctx.ellipse(0, 10, bowlRX*0.95, 24, 0, 0, Math.PI*2);
     ctx.fill();
 
     ctx.fillStyle = '#e8e0d4';
@@ -390,18 +461,25 @@
     ctx.lineWidth = 3;
 
     ctx.beginPath();
-    ctx.ellipse(0, -8, 260, 55, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -8, bowlRX, bowlDepth+12, 0, 0, Math.PI*2);
     ctx.fill();
     ctx.stroke();
 
     // matcha surface glow
-    const g = ctx.createRadialGradient(0,-20,20, 0,-20,160);
-    g.addColorStop(0,'rgba(155,181,159,0.55)');
+    const g = ctx.createRadialGradient(0,-18,26, 0,-18,bowlRX*0.65);
+    g.addColorStop(0,'rgba(155,181,159,0.6)');
     g.addColorStop(1,'rgba(155,181,159,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(0, -16, 240, 44, 0, 0, Math.PI*2);
+    ctx.ellipse(0, -16, bowlRX*0.9, bowlDepth*0.8, 0, 0, Math.PI*2);
     ctx.fill();
+
+    // small swirl
+    ctx.strokeStyle = 'rgba(111,143,116,0.38)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(-10, -18, bowlRX*0.22, bowlDepth*0.28, 0, 0, Math.PI*2);
+    ctx.stroke();
 
     ctx.restore();
   }
@@ -418,7 +496,10 @@
     ctx.fill();
 
     // bristles
-    ctx.strokeStyle = 'rgba(111,143,116,0.95)';
+    const bristleGrad = ctx.createLinearGradient(-player.w*0.5, -12, player.w*0.5, 26);
+    bristleGrad.addColorStop(0, 'rgba(111,143,116,0.95)');
+    bristleGrad.addColorStop(1, 'rgba(155,181,159,0.95)');
+    ctx.strokeStyle = bristleGrad;
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
     for (let i=-6;i<=6;i++) {
@@ -430,12 +511,19 @@
     }
 
     // handle
-    ctx.strokeStyle = 'rgba(138,107,79,0.85)';
-    ctx.lineWidth = 10;
+    const handleGrad = ctx.createLinearGradient(0, -48, 0, -10);
+    handleGrad.addColorStop(0, 'rgba(110,83,58,0.9)');
+    handleGrad.addColorStop(1, 'rgba(168,133,96,0.9)');
+    ctx.strokeStyle = handleGrad;
+    ctx.lineWidth = 11;
     ctx.beginPath();
     ctx.moveTo(0, -22);
-    ctx.lineTo(0, -48);
+    ctx.lineTo(0, -52);
     ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.roundRect(-8, -54, 16, 8, 4);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -443,22 +531,43 @@
   function drawItem(it) {
     ctx.save();
     ctx.translate(it.x, it.y);
-    if (it.type === 'leaf') {
-      ctx.fillStyle = 'rgba(111,143,116,0.95)';
+    if (it.type === 'leaf' || it.type === 'gold') {
+      const rot = Math.sin(it.wobble)*0.5;
+      const g = ctx.createLinearGradient(-it.r, -it.r, it.r, it.r);
+      if (it.type === 'gold') {
+        g.addColorStop(0, 'rgba(230,189,92,0.95)');
+        g.addColorStop(1, 'rgba(255,226,140,0.95)');
+      } else {
+        g.addColorStop(0, 'rgba(111,143,116,0.95)');
+        g.addColorStop(1, 'rgba(155,181,159,0.95)');
+      }
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.ellipse(0,0,it.r*1.05,it.r*0.8, Math.sin(it.wobble)*0.5, 0, Math.PI*2);
+      ctx.ellipse(0,0,it.r*1.05,it.r*0.82, rot, 0, Math.PI*2);
       ctx.fill();
-      // tiny highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = it.type === 'gold' ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.ellipse(-it.r*0.2,-it.r*0.15,it.r*0.35,it.r*0.22,0,0,Math.PI*2);
+      ctx.ellipse(-it.r*0.25,-it.r*0.12,it.r*0.45,it.r*0.26,rot,0,Math.PI*2);
+      ctx.stroke();
+    } else if (it.type === 'foam') {
+      const g = ctx.createRadialGradient(0,0, it.r*0.25, 0,0, it.r*1.05);
+      g.addColorStop(0, 'rgba(178,206,182,0.95)');
+      g.addColorStop(1, 'rgba(111,143,116,0.75)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0,0,it.r*1.05,it.r*0.9, Math.sin(it.wobble)*0.3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(-it.r*0.2,-it.r*0.18,it.r*0.6,it.r*0.38,0,0,Math.PI*2);
       ctx.fill();
     } else {
-      ctx.fillStyle = 'rgba(138,107,79,0.90)';
+      ctx.fillStyle = 'rgba(138,107,79,0.92)';
       ctx.beginPath();
       ctx.arc(0,0,it.r,0,Math.PI*2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.beginPath();
       ctx.arc(-it.r*0.25,-it.r*0.2,it.r*0.45,0,Math.PI*2);
       ctx.fill();
@@ -466,7 +575,23 @@
     ctx.restore();
   }
 
+  function drawParticles() {
+    ctx.save();
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life * 1.3);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4 + (p.color.includes('gold') ? 1.5 : 0), 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawUI() {
+    const cfg = levelCfg();
+    const goal = cfg.goal;
+    const totalTime = cfg.totalTime;
+
     // top goal indicator
     ctx.save();
     ctx.globalAlpha = 0.9;
@@ -489,6 +614,53 @@
     ctx.fillStyle = 'rgba(111,143,116,0.75)';
     ctx.fillRect(bx, by, Math.max(0, Math.min(bw, (score/goal)*bw)), bh);
 
+    // streak badge
+    if (streak >= 2) {
+      const sx = 20, sy = 64;
+      ctx.fillStyle = 'rgba(111,143,116,0.15)';
+      ctx.beginPath();
+      ctx.roundRect(sx, sy, 160, 32, 12);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.font = '600 15px system-ui';
+      ctx.fillText(`Serie x${streak}`, sx+12, sy+21);
+    }
+
+    // slow badge
+    if (slowMo > 0) {
+      const bx2 = W-180, by2 = 64;
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.beginPath();
+      ctx.roundRect(bx2, by2, 160, 32, 12);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(111,143,116,0.85)';
+      ctx.font = '600 14px system-ui';
+      ctx.fillText('Chill 🧊 + Foam', bx2+12, by2+21);
+    }
+
+    // time bar
+    const tx = W-210, ty = 14, tw = 190, th = 46;
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, th, 14);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.font = '700 18px system-ui';
+    ctx.fillText('Zeit', tx+18, ty+30);
+
+    const tProg = Math.max(0, Math.min(1, timeLeft / totalTime));
+    ctx.fillStyle = 'rgba(138,107,79,0.12)';
+    ctx.fillRect(tx+80, ty+14, 90, 10);
+    ctx.fillStyle = 'rgba(111,143,116,0.8)';
+    ctx.fillRect(tx+80, ty+14, 90 * tProg, 10);
+    ctx.font = '600 14px system-ui';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillText(`${Math.ceil(timeLeft)}s`, tx+80, ty+34);
+
     ctx.restore();
   }
 
@@ -497,34 +669,59 @@
 
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
+    const dtEff = slowMo > 0 ? dt*0.65 : dt;
 
     // update timer
-    timeLeft -= dt;
+    timeLeft -= dtEff;
     if (timeLeft < 0) timeLeft = 0;
+    if (slowMo > 0) slowMo -= dt;
+    if (shake > 0) shake = Math.max(0, shake - dt*2);
 
     // move player smoothly
-    player.x += (player.targetX - player.x) * Math.min(1, dt*10);
+    player.x += (player.targetX - player.x) * Math.min(1, dtEff*12);
 
     // spawn logic
-    spawnT += dt;
-    const p = timeLeft / totalTime;
-    const interval = (p > 0.60) ? 0.65 : (p > 0.30 ? 0.55 : 0.48);
+    spawnT += dtEff;
+    const cfg = levelCfg();
+    const p = timeLeft / cfg.totalTime;
+    const interval = (p > 0.60) ? cfg.spawn.intervals[0] : (p > 0.30 ? cfg.spawn.intervals[1] : cfg.spawn.intervals[2]);
     if (spawnT >= interval) {
       spawnT = 0;
       spawn();
-      if (Math.random() < 0.25) spawn(); // occasional double
+      if (Math.random() < cfg.spawn.doubleChance) spawn(); // occasional double
     }
 
     // update items
     for (let i=items.length-1; i>=0; i--) {
       const it = items[i];
-      it.wobble += dt*4;
-      it.y += it.vy * dt;
-      it.x += Math.sin(it.wobble) * dt * 35;
+      it.wobble += dtEff*4;
+      it.y += it.vy * dtEff;
+      it.x += Math.sin(it.wobble) * dtEff * 35 + (it.drift || 0) * dtEff;
 
       if (collide(it)) {
-        if (it.type === 'leaf') score += 1;
-        else score -= 2;
+        if (it.type === 'leaf') {
+          streak += 1;
+          const bonus = (streak > 0 && streak % 12 === 0) ? 1 : 0;
+          score += 1 + bonus;
+          burst(it.x, it.y, 'rgba(111,143,116,0.80)');
+        } else if (it.type === 'gold') {
+          streak += 2;
+          score += 2;
+          timeLeft = Math.min(levelCfg().totalTime, timeLeft + 5);
+          slowMo = Math.min(6, slowMo + 5);
+          burst(it.x, it.y, 'rgba(230,189,92,0.85)');
+        } else if (it.type === 'foam') {
+          streak += 3;
+          score += 4;
+          timeLeft = Math.min(levelCfg().totalTime, timeLeft + 8);
+          slowMo = Math.min(7, slowMo + 6);
+          burst(it.x, it.y, 'rgba(178,206,182,0.85)');
+        } else {
+          score -= 2;
+          streak = 0;
+          shake = 0.35;
+          burst(it.x, it.y, 'rgba(138,107,79,0.75)');
+        }
         items.splice(i,1);
         continue;
       }
@@ -533,19 +730,46 @@
       }
     }
 
+    // particles
+    for (let i=particles.length-1; i>=0; i--) {
+      const p = particles[i];
+      p.life -= dt;
+      if (p.life <= 0) { particles.splice(i,1); continue; }
+      p.vy += 220 * dtEff;
+      p.x += p.vx * dtEff;
+      p.y += p.vy * dtEff;
+    }
+
     // render
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate(rand(-shake*6, shake*6), rand(-shake*6, shake*6));
+    }
     drawBackground();
     for (const it of items) drawItem(it);
+    drawParticles();
     drawBowl();
     drawPlayer();
     drawUI();
+    ctx.restore();
 
-    hud.textContent = `Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
+    hud.textContent = `Level ${currentLevel+1} · Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
 
     // win/lose
-    if (score >= goal) {
-      unlock('goal');
-      return;
+    if (score >= levelCfg().goal) {
+      if (currentLevel < levels.length-1) {
+        currentLevel += 1;
+        running = false;
+        syncStartCard();
+        startCard.style.display='block';
+        const h = document.getElementById('hello');
+        h.textContent = `Level ${currentLevel+1}: ${levelCfg().name}`;
+        btnStart.textContent = `Weiter zu Level ${currentLevel+1}`;
+        return;
+      } else {
+        unlock('goal');
+        return;
+      }
     }
     if (timeLeft <= 0) {
       gameOver();
