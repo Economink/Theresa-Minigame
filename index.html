@@ -191,7 +191,6 @@
   const qs = new URLSearchParams(location.search);
   const name = (qs.get('name') || '').trim();
   document.getElementById('hello').textContent = name ? `Hey ${name} 👋` : 'Bereit?';
-  syncStartCard();
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -237,9 +236,11 @@
   window.addEventListener('resize', fitCanvas, { passive:true });
   fitCanvas();
 
-  // --- game constants
-  const goal = 22;
-  const totalTime = 48;
+  // --- level + game constants
+  const levels = [
+    { name: 'Matcha Basics', goal: 22, totalTime: 48, spawn: { doubleChance: 0.18 } },
+  ];
+  let currentLevel = 0;
 
   // player (whisk)
   const player = {
@@ -249,7 +250,7 @@
 
   let running = false;
   let score = 0;
-  let timeLeft = levels[0].totalTime;
+  let timeLeft = levels[currentLevel].totalTime;
   let spawnT = 0;
   let last = 0;
   let tries = 0;
@@ -287,18 +288,7 @@
     }
     btnStart.textContent = `Level ${currentLevel+1} starten`;
   }
-
-  function burst(x, y, color) {
-    for (let i=0; i<9; i++) {
-      particles.push({
-        x, y,
-        vx: rand(-90, 90),
-        vy: rand(-140, -40),
-        life: rand(0.35, 0.75),
-        color
-      });
-    }
-  }
+  syncStartCard();
 
   function reset() {
     const cfg = levelCfg();
@@ -649,6 +639,10 @@
   function tick(t) {
     if (!running) return;
 
+    const cfg = levelCfg();
+    const totalTime = cfg.totalTime;
+    const doubleChance = (cfg.spawn && typeof cfg.spawn.doubleChance === 'number') ? cfg.spawn.doubleChance : 0;
+
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
     const dtEff = slowMo > 0 ? dt*0.65 : dt;
@@ -669,7 +663,7 @@
     if (spawnT >= interval) {
       spawnT = 0;
       spawn();
-      if (Math.random() < cfg.spawn.doubleChance) spawn(); // occasional double
+      if (Math.random() < doubleChance) spawn(); // occasional double
     }
 
     // update items
