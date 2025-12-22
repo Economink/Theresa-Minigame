@@ -26,7 +26,8 @@
       height:100dvh;
       min-height:100dvh;
       padding-bottom: env(safe-area-inset-bottom);
-      width:100%;
+      max-width: 1100px;
+      margin: 0 auto;
       display:flex;
       flex-direction:column;
       align-items:stretch;
@@ -50,7 +51,7 @@
       align-items:stretch;
       justify-content:center;
       padding: clamp(8px, 2.5vw, 14px);
-      min-height: calc(100dvh - 170px);
+      min-height: min(72vh, 620px);
     }
     canvas {
       display:block;
@@ -137,18 +138,18 @@
 <div id="wrap">
   <header>
     <div class="title">🍵 Matcha-Whisk-Dash</div>
-    <div class="meta" id="hud">Level 1 · Score: 0 · Zeit: 130</div>
+    <div class="meta" id="hud">Score: 0 · Zeit: 48</div>
   </header>
 
   <div id="gameArea">
-    <canvas id="c" width="900" height="740" aria-label="Spielbereich"></canvas>
+    <canvas id="c" width="900" height="680" aria-label="Spielbereich"></canvas>
 
     <div id="overlay">
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
         <p>Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Ziel:</b> Zwei Level: erst Punkte sammeln, dann Matcha-Schaum meistern → Gutschein wird freigeschaltet.</p>
-        <p class="small">Tipp: Goldene Blätter bringen Bonus + Zeit + Chill, Serien halten den Flow. Nach 3 Versuchen schalten wir trotzdem frei. 🎁</p>
+        <p><b>Ziel:</b> 22 Punkte in 48 Sekunden → Gutschein wird freigeschaltet.</p>
+        <p class="small">Tipp: Goldene Blätter geben Bonus + Zeit, Serie bringt Extra-Punkte. Nach 3 Versuchen schalten wir trotzdem frei. 🎁</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -158,9 +159,9 @@
       <div class="card" id="howCard" style="display:none;">
         <h1>So geht's</h1>
         <p>• Bewege den Besen unten per Drag oder Tippen.<br/>
-           • Grün = +1 Punkt · Braun = −2 Punkte.<br/>
-           • Gold = +2 Punkte + Zeit + Chill-Modus, Schaum = +4 Punkte + Bonuszeit.<br/>
-           • Level 1: 80 Punkte in 130s · Level 2: 150 Punkte in 160s, dann Gutschein.</p>
+           • Grün = +1 Punkt (Serie steigert Bonus) · Braun = −2 Punkte.<br/>
+           • Gold = +3 Punkte + Zeit + Chill-Modus.<br/>
+           • Bei 22 Punkten: Freigeschaltet.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
         </div>
@@ -208,7 +209,7 @@
   btnHow.onclick = () => { startCard.style.display='none'; howCard.style.display='block'; };
   btnBack.onclick = () => { howCard.style.display='none'; startCard.style.display='block'; };
   // --- sizing (iPhone-friendly)
-  const BASE_W = 900, BASE_H = 740;
+  const BASE_W = 900, BASE_H = 680;
   const W = BASE_W, H = BASE_H;
 
   function fitCanvas() {
@@ -237,21 +238,8 @@
   fitCanvas();
 
   // --- game constants
-  const levels = [
-    {
-      name:'Matcha Basics',
-      goal: 80,
-      totalTime: 130,
-      spawn: { intervals:[0.78,0.68,0.58], doubleChance:0.10, vy:[120,190], goldChance:0.10, clayChance:0.16, foamChance:0 }
-    },
-    {
-      name:'Schaumrausch',
-      goal: 150,
-      totalTime: 160,
-      spawn: { intervals:[0.65,0.55,0.45], doubleChance:0.16, vy:[130,210], goldChance:0.14, clayChance:0.20, foamChance:0.18 }
-    }
-  ];
-  let currentLevel = 0;
+  const goal = 22;
+  const totalTime = 48;
 
   // player (whisk)
   const player = {
@@ -300,6 +288,18 @@
     btnStart.textContent = `Level ${currentLevel+1} starten`;
   }
 
+  function burst(x, y, color) {
+    for (let i=0; i<9; i++) {
+      particles.push({
+        x, y,
+        vx: rand(-90, 90),
+        vy: rand(-140, -40),
+        life: rand(0.35, 0.75),
+        color
+      });
+    }
+  }
+
   function reset() {
     const cfg = levelCfg();
     running = false;
@@ -314,7 +314,7 @@
     streak = 0;
     slowMo = 0;
     shake = 0;
-    hud.textContent = `Level ${currentLevel+1} · Score: ${score} · Zeit: ${Math.ceil(timeLeft)}`;
+    hud.textContent = `Score: ${score} · Zeit: ${timeLeft}`;
   }
 
   function start(newRun=false) {
@@ -362,23 +362,17 @@
   }
 
   function spawn() {
-    const cfg = levelCfg().spawn;
     const roll = Math.random();
     let type = 'leaf';
-    const goldEdge = 1 - cfg.goldChance;
-    const clayEdge = goldEdge - cfg.clayChance;
-    const foamEdge = clayEdge - (cfg.foamChance || 0);
-    if (roll > goldEdge) type = 'gold';
-    else if (roll > clayEdge) type = 'clay';
-    else if (roll > foamEdge) type = 'foam';
+    if (roll > 0.86) type = 'gold';
+    else if (roll > 0.72) type = 'clay';
 
-    const r = type === 'gold' ? rand(14,20) : (type === 'leaf' ? rand(10,16) : type === 'foam' ? rand(14,22) : rand(14,20));
-    const vyBase = rand(cfg.vy[0], cfg.vy[1]);
+    const r = type === 'gold' ? rand(14,20) : (type === 'leaf' ? rand(10,16) : rand(14,20));
     items.push({
       x: rand(r, W-r),
       y: -r-5,
       r,
-      vy: vyBase * (type==='leaf'?1:(type==='gold'?0.92:(type==='foam'?0.9:0.85))),
+      vy: rand(150, 220) * (type==='leaf'?1:(type==='gold'?0.98:0.9)),
       type,
       wobble: rand(0, Math.PI*2),
       drift: type==='foam' ? rand(-30,30) : 0,
@@ -550,18 +544,6 @@
       ctx.beginPath();
       ctx.ellipse(-it.r*0.25,-it.r*0.12,it.r*0.45,it.r*0.26,rot,0,Math.PI*2);
       ctx.stroke();
-    } else if (it.type === 'foam') {
-      const g = ctx.createRadialGradient(0,0, it.r*0.25, 0,0, it.r*1.05);
-      g.addColorStop(0, 'rgba(178,206,182,0.95)');
-      g.addColorStop(1, 'rgba(111,143,116,0.75)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(0,0,it.r*1.05,it.r*0.9, Math.sin(it.wobble)*0.3, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.beginPath();
-      ctx.ellipse(-it.r*0.2,-it.r*0.18,it.r*0.6,it.r*0.38,0,0,Math.PI*2);
-      ctx.fill();
     } else {
       ctx.fillStyle = 'rgba(138,107,79,0.92)';
       ctx.beginPath();
@@ -619,7 +601,7 @@
       const sx = 20, sy = 64;
       ctx.fillStyle = 'rgba(111,143,116,0.15)';
       ctx.beginPath();
-      ctx.roundRect(sx, sy, 160, 32, 12);
+      ctx.roundRect(sx, sy, 128, 32, 12);
       ctx.fill();
       ctx.fillStyle = 'rgba(0,0,0,0.75)';
       ctx.font = '600 15px system-ui';
@@ -628,14 +610,14 @@
 
     // slow badge
     if (slowMo > 0) {
-      const bx2 = W-180, by2 = 64;
+      const bx2 = W-156, by2 = 64;
       ctx.fillStyle = 'rgba(255,255,255,0.65)';
       ctx.beginPath();
-      ctx.roundRect(bx2, by2, 160, 32, 12);
+      ctx.roundRect(bx2, by2, 136, 32, 12);
       ctx.fill();
       ctx.fillStyle = 'rgba(111,143,116,0.85)';
       ctx.font = '600 14px system-ui';
-      ctx.fillText('Chill 🧊 + Foam', bx2+12, by2+21);
+      ctx.fillText('Chill 🧊', bx2+12, by2+21);
     }
 
     // time bar
@@ -682,9 +664,8 @@
 
     // spawn logic
     spawnT += dtEff;
-    const cfg = levelCfg();
-    const p = timeLeft / cfg.totalTime;
-    const interval = (p > 0.60) ? cfg.spawn.intervals[0] : (p > 0.30 ? cfg.spawn.intervals[1] : cfg.spawn.intervals[2]);
+    const p = timeLeft / totalTime;
+    const interval = (p > 0.60) ? 0.62 : (p > 0.30 ? 0.50 : 0.42);
     if (spawnT >= interval) {
       spawnT = 0;
       spawn();
@@ -696,26 +677,20 @@
       const it = items[i];
       it.wobble += dtEff*4;
       it.y += it.vy * dtEff;
-      it.x += Math.sin(it.wobble) * dtEff * 35 + (it.drift || 0) * dtEff;
+      it.x += Math.sin(it.wobble) * dtEff * 35;
 
       if (collide(it)) {
         if (it.type === 'leaf') {
           streak += 1;
-          const bonus = (streak > 0 && streak % 12 === 0) ? 1 : 0;
-          score += 1 + bonus;
+          const bonus = 1 + Math.min(3, Math.floor(streak/4));
+          score += bonus;
           burst(it.x, it.y, 'rgba(111,143,116,0.80)');
         } else if (it.type === 'gold') {
           streak += 2;
-          score += 2;
-          timeLeft = Math.min(levelCfg().totalTime, timeLeft + 5);
-          slowMo = Math.min(6, slowMo + 5);
+          score += 3;
+          timeLeft = Math.min(totalTime, timeLeft + 2.5);
+          slowMo = Math.min(6, slowMo + 3);
           burst(it.x, it.y, 'rgba(230,189,92,0.85)');
-        } else if (it.type === 'foam') {
-          streak += 3;
-          score += 4;
-          timeLeft = Math.min(levelCfg().totalTime, timeLeft + 8);
-          slowMo = Math.min(7, slowMo + 6);
-          burst(it.x, it.y, 'rgba(178,206,182,0.85)');
         } else {
           score -= 2;
           streak = 0;
