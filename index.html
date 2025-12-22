@@ -148,8 +148,8 @@
       <div class="card" id="startCard">
         <h1 id="hello">Bereit?</h1>
         <p>Level 1: Zieh den <b>Matcha-Besen</b> unten mit dem Finger nach links/rechts und fange <b>Matcha-Blätter</b> (grün). Weiche den <b>Tonklumpen</b> (braun) aus.</p>
-        <p><b>Level 2 (neu!):</b> Die Schale dreht auf der Töpferscheibe. Tippe oben im richtigen Moment auf Matcha-Kleckse, poliere braune Klumpen weg, goldene Wirbel geben Bonus.</p>
-        <p class="small">Ziel: Beide Level schaffen. Tipp: Gold = Bonus + Zeit, Serien bringen Extra-Punkte, bei der Drehscheibe zählt Timing. Nach 3 Versuchen schalten wir trotzdem frei.</p>
+        <p><b>Level 2 (neu!):</b> Matcha-Wellen! Auf der Matcha-Oberfläche tauchen Kreise auf. Tippe grüne/goldene Wellen weg, stupse braune Klumpen an, damit sie sich auflösen.</p>
+        <p class="small">Ziel: Beide Level schaffen. Tipp: Gold = Bonus + Zeit, Serien bringen Extra-Punkte, beim Wellen-Tippen zählt Reaktion statt Dauer-Scroll. Nach 3 Versuchen schalten wir trotzdem frei.</p>
         <div class="btnrow">
           <button class="primary" id="btnStart">Los geht's</button>
           <button class="secondary" id="btnHow">Kurz erklärt</button>
@@ -159,7 +159,7 @@
       <div class="card" id="howCard" style="display:none;">
         <h1>So geht's</h1>
         <p>• Level 1: Besen unten ziehen, Grün fangen, Braun meiden.<br/>
-           • Level 2: Drehscheibe! Tippe, wenn oben ein Klecks vorbeikommt. Braun wegpolieren, Gold = Bonus & Zeit, nichts treffen = Zeitverlust.<br/>
+           • Level 2: Matcha-Wellen! Tippe die Kreise auf der Schale, bevor sie verblassen. Braun kurz antippen, Gold bringt Bonus & Zeit.<br/>
            • Serien geben Bonuspunkte. Gutschein erst nach Level 2.</p>
         <div class="btnrow">
           <button class="primary" id="btnBack">Zurück</button>
@@ -249,12 +249,12 @@
       }
     },
     {
-      mode: 'spin',
-      name: 'Matcha-Drehscheibe',
-      goal: 28,
-      totalTime: 52,
+      mode: 'ripple',
+      name: 'Matcha-Wellen',
+      goal: 30,
+      totalTime: 54,
       spawn: {
-        doubleChance: 0.22,
+        doubleChance: 0.24,
         weights: { leaf: 0.64, gold: 0.16, clay: 0.20 }
       }
     },
@@ -285,6 +285,10 @@
     hitZone: -Math.PI/2,
     swing: 0,
     pulse: 0,
+  };
+  const rippleState = {
+    spots: [],
+    pulse: 0
   };
   const particles = [];
 
@@ -339,8 +343,8 @@
     }
     if (ps[2]) {
       const attempt = Math.min(tries + 1, 3);
-      const modeHint = cfg.mode === 'spin'
-        ? 'Drehscheibe: Tippe oben im richtigen Moment. Braun durchwinken kostet Zeit.'
+      const modeHint = cfg.mode === 'ripple'
+        ? 'Matcha-Wellen: Tippe grüne/goldene Kreise weg, Braun löschen kostet einen Augenblick.'
         : 'Goldene Blätter geben Bonus + Zeit + Chill, Serien halten den Flow.';
       ps[2].textContent = `Level ${currentLevel+1}/${levels.length}: ${cfg.name}. Versuch ${attempt}/3. Tipp: ${modeHint}`;
     }
@@ -360,6 +364,8 @@
     spinState.speed = 1.1;
     spinState.swing = 0;
     spinState.pulse = 0;
+    rippleState.spots.length = 0;
+    rippleState.pulse = 0;
     particles.length = 0;
     player.x = W*0.5;
     player.y = PLAYER_Y;
@@ -458,6 +464,43 @@
     });
   }
 
+  function bowlSurface() {
+    const rx = Math.min(W*0.34, H*0.30);
+    const ry = rx * 0.62;
+    const cx = W/2;
+    const cy = H - Math.max(72, H*0.14);
+    return {cx, cy, rx, ry};
+  }
+
+  function spawnRipple() {
+    const cfg = levelCfg();
+    const w = (cfg.spawn && cfg.spawn.weights) || { leaf: 0.64, gold: 0.16, clay: 0.20 };
+    const leafW = w.leaf ?? 0.64;
+    const goldW = w.gold ?? 0.16;
+    const clayW = w.clay ?? 0.20;
+    const totalW = leafW + goldW + clayW;
+    const roll = Math.random() * totalW;
+    let type = 'leaf';
+    if (roll > leafW + goldW) type = 'clay';
+    else if (roll > leafW) type = 'gold';
+
+    const {cx, cy, rx, ry} = bowlSurface();
+    const angle = rand(0, Math.PI*2);
+    const radius = Math.sqrt(Math.random());
+    const x = cx + Math.cos(angle) * rx * radius * 0.95;
+    const y = cy + Math.sin(angle) * ry * radius * 0.92;
+    const baseR = type === 'gold' ? rand(18,22) : (type === 'leaf' ? rand(16,20) : rand(20,24));
+    rippleState.spots.push({
+      x, y,
+      baseR,
+      r: baseR,
+      type,
+      life: 1,
+      wobble: rand(0, Math.PI*2),
+      cleared: false
+    });
+  }
+
   function collide(item) {
     // circle vs player rect
     const rx = player.x - player.w/2;
@@ -513,21 +556,85 @@
     spinState.items.splice(bestIdx, 1);
   }
 
+  function hitRipple(pos) {
+    if (!running || levelCfg().mode !== 'ripple') return;
+    let bestIdx = -1;
+    let bestDist = 999;
+    for (let i=0; i<rippleState.spots.length; i++) {
+      const s = rippleState.spots[i];
+      const dx = pos.x - s.x;
+      const dy = pos.y - s.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist <= s.r + 18 && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx === -1) {
+      streak = 0;
+      shake = Math.max(shake, 0.2);
+      timeLeft = Math.max(0, timeLeft - 0.4);
+      return;
+    }
+    const s = rippleState.spots[bestIdx];
+    const cfg = levelCfg();
+    const totalTime = cfg.totalTime;
+    const bonusPos = {x: s.x, y: s.y};
+    s.cleared = true;
+    if (s.type === 'leaf') {
+      streak += 1;
+      const bonus = 1 + Math.min(2, Math.floor(streak/3));
+      score += bonus;
+      rippleState.pulse = Math.min(1, rippleState.pulse + 0.45);
+      burst(bonusPos.x, bonusPos.y, 'rgba(111,143,116,0.80)');
+    } else if (s.type === 'gold') {
+      streak += 2;
+      score += 3;
+      timeLeft = Math.min(totalTime, timeLeft + 2.4);
+      slowMo = Math.min(6, slowMo + 2.5);
+      rippleState.pulse = Math.min(1, rippleState.pulse + 0.6);
+      burst(bonusPos.x, bonusPos.y, 'rgba(230,189,92,0.85)');
+    } else {
+      score = Math.max(0, score - 1);
+      timeLeft = Math.max(0, timeLeft - 1.2);
+      streak = 0;
+      shake = Math.max(shake, 0.22);
+      rippleState.pulse = Math.min(1, rippleState.pulse + 0.25);
+      burst(bonusPos.x, bonusPos.y, 'rgba(138,107,79,0.75)');
+    }
+    rippleState.spots.splice(bestIdx, 1);
+  }
+
   // --- input: tap/drag
-  function setTargetFromEvent(e) {
+  function canvasPosFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
-    const px = (('touches' in e) ? e.touches[0].clientX : e.clientX) - rect.left;
-    const x = px * (W / rect.width);
+    const point = ('touches' in e) ? e.touches[0] : e;
+    const px = point.clientX - rect.left;
+    const py = point.clientY - rect.top;
+    return {
+      x: px * (W / rect.width),
+      y: py * (H / rect.height)
+    };
+  }
+
+  function setTargetFromEvent(e) {
+    const { x } = canvasPosFromEvent(e);
     player.targetX = Math.max(player.w/2, Math.min(W-player.w/2, x));
   }
   function handlePointerDown(e) {
-    if (levelCfg().mode === 'spin') hitSpin();
-    else setTargetFromEvent(e);
+    const mode = levelCfg().mode;
+    if (mode === 'spin') {
+      hitSpin();
+    } else if (mode === 'ripple') {
+      hitRipple(canvasPosFromEvent(e));
+    } else {
+      setTargetFromEvent(e);
+    }
   }
   canvas.addEventListener('pointerdown', (e)=>{ handlePointerDown(e); });
-  canvas.addEventListener('pointermove', (e)=>{ if (levelCfg().mode !== 'spin' && (e.buttons || e.pressure>0)) setTargetFromEvent(e); });
+  canvas.addEventListener('pointermove', (e)=>{ if (levelCfg().mode === 'catch' && (e.buttons || e.pressure>0)) setTargetFromEvent(e); });
   canvas.addEventListener('touchstart', (e)=>{ handlePointerDown(e); }, {passive:true});
-  canvas.addEventListener('touchmove', (e)=>{ if (levelCfg().mode !== 'spin') setTargetFromEvent(e); }, {passive:true});
+  canvas.addEventListener('touchmove', (e)=>{ if (levelCfg().mode === 'catch') setTargetFromEvent(e); }, {passive:true});
 
   // start button
   btnStart.onclick = () => start(currentLevel===0);
@@ -668,21 +775,6 @@
       ctx.quadraticCurveTo(x*0.3, 10, x*0.1, 22);
       ctx.stroke();
     }
-
-    // handle
-    const handleGrad = ctx.createLinearGradient(0, -48, 0, -10);
-    handleGrad.addColorStop(0, 'rgba(110,83,58,0.9)');
-    handleGrad.addColorStop(1, 'rgba(168,133,96,0.9)');
-    ctx.strokeStyle = handleGrad;
-    ctx.lineWidth = 11;
-    ctx.beginPath();
-    ctx.moveTo(0, -22);
-    ctx.lineTo(0, -52);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.beginPath();
-    ctx.roundRect(-8, -54, 16, 8, 4);
-    ctx.fill();
 
     ctx.restore();
   }
@@ -854,6 +946,68 @@
     ctx.font = '600 14px system-ui';
     ctx.fillText('Treffer-Zone', target.x - 52, target.y - 52);
     ctx.restore();
+  }
+
+  function drawRippleStage() {
+    const {cx, cy, rx, ry} = bowlSurface();
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.roundRect(cx - rx*1.15, cy - ry*1.2, rx*2.3, ry*2.1, 22);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(132,161,138,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx*0.96, ry*0.96, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(111,143,116,0.35)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx*0.92, ry*0.86, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+
+    if (rippleState.pulse > 0) {
+      ctx.save();
+      ctx.globalAlpha = rippleState.pulse * 0.5;
+      ctx.strokeStyle = 'rgba(230,189,92,0.35)';
+      ctx.lineWidth = 12 * rippleState.pulse;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx*0.98 + rippleState.pulse*10, ry*0.98 + rippleState.pulse*8, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const s of rippleState.spots) {
+      ctx.save();
+      ctx.translate(s.x, s.y + Math.sin(s.wobble)*1.6);
+      ctx.globalAlpha = 0.35 + s.life * 0.45;
+      const g = ctx.createRadialGradient(0,0,s.r*0.2, 0,0,s.r*1.05);
+      if (s.type === 'gold') {
+        g.addColorStop(0, 'rgba(255,226,140,0.95)');
+        g.addColorStop(1, 'rgba(230,189,92,0.75)');
+      } else if (s.type === 'leaf') {
+        g.addColorStop(0, 'rgba(155,181,159,0.9)');
+        g.addColorStop(1, 'rgba(111,143,116,0.85)');
+      } else {
+        g.addColorStop(0, 'rgba(138,107,79,0.92)');
+        g.addColorStop(1, 'rgba(110,83,58,0.82)');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0,0,s.r*1.05,s.r*0.74, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = s.type === 'gold' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0,0,s.r*0.78,s.r*0.52, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   function drawUI() {
@@ -1047,6 +1201,47 @@
     ctx.restore();
   }
 
+  function runRipple(dt, dtEff, cfg) {
+    rippleState.pulse = Math.max(0, rippleState.pulse - dt*1.4);
+    spawnT += dtEff;
+    const interval = 0.9 - Math.min(0.32, score / Math.max(1, cfg.goal*5));
+    if (spawnT >= interval && rippleState.spots.length < 10) {
+      spawnT = 0;
+      spawnRipple();
+      if (Math.random() < ((cfg.spawn && cfg.spawn.doubleChance) || 0) * 0.45 && rippleState.spots.length < 10) {
+        spawnRipple();
+      }
+    }
+
+    for (let i=rippleState.spots.length-1; i>=0; i--) {
+      const s = rippleState.spots[i];
+      s.life -= dtEff * (0.85 + (s.type === 'gold' ? -0.05 : 0));
+      s.wobble += dtEff * 2.4;
+      s.r = s.baseR * (0.88 + Math.sin(s.wobble) * 0.05);
+      if (s.life <= 0) {
+        if (!s.cleared) {
+          if (s.type === 'leaf' || s.type === 'gold') {
+            streak = 0;
+            timeLeft = Math.max(0, timeLeft - 0.8);
+          } else {
+            score = Math.max(0, score - 1);
+          }
+        }
+        rippleState.spots.splice(i,1);
+      }
+    }
+
+    stepParticles(dtEff);
+
+    ctx.save();
+    if (shake > 0) ctx.translate(rand(-shake*6, shake*6), rand(-shake*6, shake*6));
+    drawBackground();
+    drawRippleStage();
+    drawParticles();
+    drawUI();
+    ctx.restore();
+  }
+
   function tick(t) {
     if (!running) return;
 
@@ -1066,6 +1261,8 @@
 
     if (cfg.mode === 'spin') {
       runSpin(dt, dtEff, cfg);
+    } else if (cfg.mode === 'ripple') {
+      runRipple(dt, dtEff, cfg);
     } else {
       runCatch(dt, dtEff, cfg, doubleChance, totalTime);
     }
