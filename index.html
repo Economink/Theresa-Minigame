@@ -631,10 +631,10 @@
       setTargetFromEvent(e);
     }
   }
+  // Use pointer events for all input. Mixing touch and pointer handlers caused
+  // double-triggered taps on mobile (tap registered twice → miss penalty).
   canvas.addEventListener('pointerdown', (e)=>{ handlePointerDown(e); });
   canvas.addEventListener('pointermove', (e)=>{ if (levelCfg().mode === 'catch' && (e.buttons || e.pressure>0)) setTargetFromEvent(e); });
-  canvas.addEventListener('touchstart', (e)=>{ handlePointerDown(e); }, {passive:true});
-  canvas.addEventListener('touchmove', (e)=>{ if (levelCfg().mode === 'catch') setTargetFromEvent(e); }, {passive:true});
 
   // start button
   btnStart.onclick = () => start(currentLevel===0);
