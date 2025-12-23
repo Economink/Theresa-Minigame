@@ -465,10 +465,10 @@
   }
 
   function bowlSurface() {
-    const rx = Math.min(W*0.34, H*0.30);
-    const ry = rx * 0.62;
-    const cx = W/2;
-    const cy = H - Math.max(72, H*0.14);
+    const rx = Math.min(W * 0.47, (W / 2) - 12);
+    const ry = Math.min(H * 0.46, (H / 2) - 12);
+    const cx = W / 2;
+    const cy = H / 2;
     return {cx, cy, rx, ry};
   }
 
@@ -952,8 +952,9 @@
     const {cx, cy, rx, ry} = bowlSurface();
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    const pad = Math.min(W, H) * 0.04;
     ctx.beginPath();
-    ctx.roundRect(cx - rx*1.15, cy - ry*1.2, rx*2.3, ry*2.1, 22);
+    ctx.roundRect(pad, pad, W - pad*2, H - pad*2, 24);
     ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.06)';
     ctx.stroke();
